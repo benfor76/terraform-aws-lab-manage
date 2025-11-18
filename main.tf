@@ -30,11 +30,6 @@ resource "aws_ec2_instance_state" "start_rhel10_instances" {
 
   instance_id = each.key
   state       = "running"
-
-  # Only trigger start if the instance is stopped
-  triggers = {
-    instance_state = each.value.instance_state
-  }
 }
 
 # Output the instances that will be started
