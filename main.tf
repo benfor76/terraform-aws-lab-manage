@@ -1,42 +1,50 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
+# Configure the AWS Provider
 provider "aws" {
   region = "us-east-2"
 }
 
-# 1. Find all instances with Name tag containing "RHEL10"
-data "aws_instances" "rhel10" {
-  filter {
-    name   = "tag:Name"
-    values = ["*-RHEL10"]
+# Data source to get all instances in the region
+data "aws_instances" "all_instances" {
+  instance_state_names = ["stopped", "running"] # Include both to find our target instances
+}
+
+# Data source to get details about each instance
+data "aws_instance" "instance_details" {
+  for_each = toset(data.aws_instances.all_instances.ids)
+  
+  instance_id = each.value
+}
+
+# Filter instances to find those with "RHEL10" in the Name tag
+locals {
+  rhel10_instances = {
+    for id, instance in data.aws_instance.instance_details :
+    id => instance
+    if can(instance.tags["Name"]) && length(regexall("RHEL10", instance.tags["Name"])) > 0
   }
 }
 
-# 2. Start them using AWS CLI via a null_resource
-resource "null_resource" "start_rhel10_instances" {
-  # Rerun this resource if the set of instance IDs changes
-  triggers = {
-    instance_ids = join(",", data.aws_instances.rhel10.ids)
-  }
+# Start the RHEL10 instances
+resource "aws_ec2_instance_state" "start_rhel10_instances" {
+  for_each = local.rhel10_instances
 
-  provisioner "local-exec" {
-    when    = create
-    command = <<-EOT
-      if [ "${join(" ", data.aws_instances.rhel10.ids)}" != "" ]; then
-        echo "Starting instances: ${join(" ", data.aws_instances.rhel10.ids)}"
-        aws ec2 start-instances \
-          --region us-east-2 \
-          --instance-ids ${join(" ", data.aws_instances.rhel10.ids)}
-      else
-        echo "No instances found with Name tag matching *RHEL10*"
-      fi
-    EOT
+  instance_id = each.key
+  state       = "running"
+
+  # Only trigger start if the instance is stopped
+  triggers = {
+    instance_state = each.value.instance_state
   }
+}
+
+# Output the instances that will be started
+output "rhel10_instances_to_start" {
+  description = "List of RHEL10 instances that will be started"
+  value = [
+    for id, instance in local.rhel10_instances : {
+      instance_id    = id
+      instance_name  = instance.tags["Name"]
+      current_state  = instance.instance_state
+    }
+  ]
 }
