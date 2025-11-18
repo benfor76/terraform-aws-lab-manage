@@ -15,7 +15,7 @@ provider "aws" {
 data "aws_instances" "rhel10" {
   filter {
     name   = "tag:Name"
-    values = ["*RHEL10*"]
+    values = ["*-RHEL10"]
   }
 }
 
